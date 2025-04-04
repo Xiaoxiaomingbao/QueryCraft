@@ -1,13 +1,14 @@
 #include <QApplication>
-#include <QMessageBox>
+
+#include "ui/ConnectionWindow.h"
 
 int main(int argc, char *argv[]) {
     QApplication a(argc, argv);
 
-    auto* window = new QWidget();
-
-    // hello world message box
-    QMessageBox::information(window, "消息", "你好，世界！");
+    ConnectionWindow window;
+    window.setWindowTitle("连接数据库");
+    window.resize(400, 300);
+    window.show();
 
     return QApplication::exec();
 }

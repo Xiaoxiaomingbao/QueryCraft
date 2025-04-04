@@ -11,7 +11,11 @@ set(CMAKE_AUTORCC ON)  # 如果有 Qt 资源文件
 
 find_package(Qt5 COMPONENTS Core Gui Sql Widgets REQUIRED)
 
-add_executable(QueryCraft main.cpp)
+file(GLOB SOURCES "ui/*.cpp" "ui/*.h")
+
+add_executable(QueryCraft
+        main.cpp
+        ${SOURCES})
 
 target_link_libraries(QueryCraft
         Qt5::Core
@@ -49,14 +53,18 @@ if (WIN32 AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
                 "${QT_INSTALL_PATH}/bin/Qt5${QT_LIB}${DEBUG_SUFFIX}.dll"
                 "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
     endforeach(QT_LIB)
-    # 复制 MySQL 数据库插件
-    if(EXISTS "${QT_INSTALL_PATH}/plugins/sqldrivers/qsqlite${DEBUG_SUFFIX}.dll")
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E make_directory
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/plugins/sqldrivers/")
+    # 复制 MySQL 所需的动态链接库
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/plugins/sqldrivers/")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../res/qsqlmysql${DEBUG_SUFFIX}.dll"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/plugins/sqldrivers/")
+    foreach(DB_LIB libcrypto-3-x64 libssl-3-x64 libmysql)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../res/qsqlmysql${DEBUG_SUFFIX}.dll"
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/plugins/sqldrivers/")
-    endif()
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/../res/${DB_LIB}${DEBUG_SUFFIX}.dll"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/")
+    endforeach (DB_LIB)
 endif()
