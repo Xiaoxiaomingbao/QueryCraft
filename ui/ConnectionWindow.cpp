@@ -1,6 +1,7 @@
 #include <QVBoxLayout>
 #include <QFormLayout>
 #include <QSqlError>
+#include <QSqlQuery>
 #include <QDebug>
 
 #include "connectionwindow.h"
@@ -60,6 +61,7 @@ void ConnectionWindow::connectToDatabase() {
 
     if (db.open()) {
         statusLabel->setText("连接成功");
+        emit connectionSuccess(db, schemaLineEdit->text());
     } else {
         statusLabel->setText("连接失败");
         qDebug() << "Error:" << db.lastError().text();

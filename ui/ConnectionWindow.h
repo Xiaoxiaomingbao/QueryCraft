@@ -22,12 +22,15 @@ private:
     QLineEdit *schemaLineEdit;
     QLabel *statusLabel;
 
+    QSqlDatabase db;
+
+signals:
+    void connectionSuccess(QSqlDatabase database, QString schemaName);
+
 private slots:
     void connectToDatabase();
     void disconnectDatabase();
 
-private:
-    QSqlDatabase db;
 };
 
 
