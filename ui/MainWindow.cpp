@@ -1,5 +1,8 @@
 #include <QSplitter>
 #include <QVBoxLayout>
+#include <QMenu>
+#include <QInputDialog>
+#include <QHeaderView>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDebug>
@@ -19,14 +22,21 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     tree->expandAll();
 
     table = new QTableView;
+    table->verticalHeader()->setVisible(false);
+
     sqlOutput = new QTextEdit;
     sqlOutput->setReadOnly(true);
+
     queryButton = new QPushButton("条件查询");
+    cleanButton = new QPushButton("清除筛选");
+    queryButton->setAttribute(Qt::WA_LayoutUsesWidgetRect);
+    cleanButton->setAttribute(Qt::WA_LayoutUsesWidgetRect);
 
     auto *rightLayout = new QVBoxLayout;
     rightLayout->addWidget(table);
     rightLayout->addWidget(sqlOutput);
     rightLayout->addWidget(queryButton);
+    rightLayout->addWidget(cleanButton);
 
     auto *rightWidget = new QWidget;
     rightWidget->setLayout(rightLayout);
@@ -58,7 +68,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     connect(queryButton, &QPushButton::clicked, this, [=]() {
         qInfo("点击按钮：条件查询");
-        const QString sql = "SELECT * FROM " + tableName;
+        const QString sql = "SELECT * FROM " + tableName + (condition.isEmpty() ? "" : " WHERE " + condition);
         model->setQuery(sql, db);
 
         if (model->lastError().isValid()) {
@@ -67,6 +77,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             sqlOutput->setText(sql + "\nOK!");
             table->setModel(model);
         }
+    });
+
+    connect(table->horizontalHeader(), &QHeaderView::sectionClicked, this, &MainWindow::showFilterMenu);
+
+    connect(cleanButton, &QPushButton::clicked, this, [=]() {
+        qInfo("点击按钮：清除筛选");
+        condition = "";
     });
 }
 
@@ -101,4 +118,62 @@ void MainWindow::setDatabase(const QSqlDatabase& database, const QString& schema
     }
 
     tree->expandAll();  // 展开树状图
+}
+
+void MainWindow::showFilterMenu(const int column) {
+    QString fieldName = model->headerData(column, Qt::Horizontal).toString();
+    const QVariant::Type type = model->data(model->index(0, column)).type();
+
+    QMenu menu;
+
+    const QAction *greaterThan = nullptr;
+    const QAction *lessThan = nullptr;
+    const QAction *equalTo = nullptr;
+    const QAction *like = nullptr;
+
+    bool withQuote = false;
+
+    if (type == QVariant::Int || type == QVariant::UInt ||  type == QVariant::LongLong ||  type == QVariant::ULongLong || type == QVariant::Double) {
+        greaterThan = menu.addAction("大于...");
+        lessThan = menu.addAction("小于...");
+        equalTo = menu.addAction("等于...");
+    } else if (type == QVariant::String) {
+        like = menu.addAction("包含...");
+        equalTo = menu.addAction("等于...");
+        withQuote = true;
+    } else {
+        // 日期类型等暂时不处理
+        return;
+    }
+
+    const QAction *selected = menu.exec(QCursor::pos());
+    if (!selected) return;
+
+    QString op;
+    if (selected == greaterThan) op = ">";
+    else if (selected == lessThan) op = "<";
+    else if (selected == equalTo) op = "=";
+    else if (selected == like) op = "LIKE";
+
+    bool ok;
+    QString input = QInputDialog::getText(this, "输入筛选条件",
+                                          QString("字段 %1 %2 的值：").arg(fieldName, op),
+                                          QLineEdit::Normal, "", &ok);
+    if (!ok || input.isEmpty()) return;
+
+    if (condition != "") {
+        condition += " AND ";
+    }
+
+    if (op == "LIKE") {
+        condition += QString("%1 LIKE '%%2%'").arg(fieldName, input);
+    } else {
+        if (withQuote) {
+            condition += QString("%1 %2 '%3'").arg(fieldName, op, input);
+        } else {
+            condition += QString("%1 %2 %3").arg(fieldName, op, input);
+        }
+    }
+
+    qInfo("当前条件：%s", qUtf8Printable(condition));
 }

@@ -19,11 +19,15 @@ private:
     QTreeWidget *tree;
     QTableView *table;
     QPushButton *queryButton;
+    QPushButton *cleanButton;
     QTextEdit *sqlOutput;
+    QSqlQueryModel *model;
 
     QSqlDatabase db;
     QString tableName;
-    QSqlQueryModel *model;
+    QString condition;
+
+    void showFilterMenu(int column);
 };
 
 
