@@ -24,10 +24,12 @@ private:
     QSqlQueryModel *model;
 
     QSqlDatabase db;
-    QString tableName;
-    QString condition;
+    QString current;
+    QMap<QString, QString> conditions;
+    QMap<QString, QString> joinedTables;
 
     void showFilterMenu(int column);
+    void showTreeContextMenu(const QPoint &pos);
 };
 
 

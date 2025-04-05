@@ -5,6 +5,7 @@
 #include <QHeaderView>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QString>
 #include <QDebug>
 
 #include "MainWindow.h"
@@ -14,6 +15,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setCentralWidget(central);
 
     tree = new QTreeWidget;
+    tree->setContextMenuPolicy(Qt::CustomContextMenu);
     tree->setHeaderLabel("查询类型");
     auto *single = new QTreeWidgetItem(tree, QStringList("单表查询"));
     auto *join = new QTreeWidgetItem(tree, QStringList("联合查询"));
@@ -52,9 +54,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     model = new QSqlQueryModel(this);
 
     connect(tree, &QTreeWidget::itemClicked, this, [=](const QTreeWidgetItem *item) {
-        if (item->parent() && item->parent()->text(0) == "单表查询") {
-            tableName = item->text(0);
-            const QString sql = "SELECT * FROM " + tableName;
+        if (item->parent() && (item->parent()->text(0) == "联合查询" || item->parent()->text(0) == "单表查询")) {
+            current = item->text(0);
+            QString sql;
+            if (item->parent()->text(0) == "单表查询") {
+                sql = "SELECT * FROM " + current;
+            } else {
+                sql = "SELECT * FROM " + joinedTables[current];
+            }
             model->setQuery(sql, db);
 
             if (model->lastError().isValid()) {
@@ -68,7 +75,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     connect(queryButton, &QPushButton::clicked, this, [=]() {
         qInfo("点击按钮：条件查询");
-        const QString sql = "SELECT * FROM " + tableName + (condition.isEmpty() ? "" : " WHERE " + condition);
+        const QString sql = "SELECT * FROM " + (joinedTables.contains(current) ? joinedTables[current] : current) + (conditions[current].isEmpty() ? "" : " WHERE " + conditions[current]);
         model->setQuery(sql, db);
 
         if (model->lastError().isValid()) {
@@ -83,8 +90,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     connect(cleanButton, &QPushButton::clicked, this, [=]() {
         qInfo("点击按钮：清除筛选");
-        condition = "";
+        conditions[current] = "";
     });
+
+    connect(tree, &QTreeWidget::customContextMenuRequested, this, &MainWindow::showTreeContextMenu);
 }
 
 void MainWindow::setDatabase(const QSqlDatabase& database, const QString& schemaName) {
@@ -96,7 +105,7 @@ void MainWindow::setDatabase(const QSqlDatabase& database, const QString& schema
     }
 
     QSqlQuery query(db);
-    query.exec("USE " + schemaName + ";");
+    query.exec("USE " + schemaName);
     QStringList tables;
     if (query.exec("SHOW TABLES;")) {
         while (query.next()) {
@@ -161,19 +170,81 @@ void MainWindow::showFilterMenu(const int column) {
                                           QLineEdit::Normal, "", &ok);
     if (!ok || input.isEmpty()) return;
 
-    if (condition != "") {
-        condition += " AND ";
+    if (conditions[current] != "") {
+        conditions[current] += " AND ";
     }
 
     if (op == "LIKE") {
-        condition += QString("%1 LIKE '%%2%'").arg(fieldName, input);
+        conditions[current] += QString("%1 LIKE '%%2%'").arg(fieldName, input);
     } else {
         if (withQuote) {
-            condition += QString("%1 %2 '%3'").arg(fieldName, op, input);
+            conditions[current] += QString("%1 %2 '%3'").arg(fieldName, op, input);
         } else {
-            condition += QString("%1 %2 %3").arg(fieldName, op, input);
+            conditions[current] += QString("%1 %2 %3").arg(fieldName, op, input);
         }
     }
 
-    qInfo("当前条件：%s", qUtf8Printable(condition));
+    qInfo("当前条件：%s", qUtf8Printable(conditions[current]));
+}
+
+void MainWindow::showTreeContextMenu(const QPoint &pos) {
+    QTreeWidgetItem *join = tree->itemAt(pos);
+    if (!join || join->text(0) != "联合查询") return;
+
+    QMenu menu;
+    const QAction *innerJoin = menu.addAction("内连接");
+    const QAction *leftJoin = menu.addAction("左连接");
+    const QAction *rightJoin = menu.addAction("右连接");
+
+    const QAction *selected = menu.exec(tree->viewport()->mapToGlobal(pos));
+    if (!selected) return;
+
+    bool ok;
+    const QString input = QInputDialog::getText(this, "输入连接条件",
+                                          QString("连接条件："),
+                                          QLineEdit::Normal, "", &ok);
+    if (!ok || input.isEmpty()) return;
+
+    QList<QString> tables;
+    const auto *single = tree->topLevelItem(0);
+    for (int i = 0; i < single->childCount(); ++i) {
+        QString tableName = single->child(i)->text(0);
+        int from = 0;
+        while (true) {
+            const int index = input.indexOf(tableName, from);
+            if (index == -1) {
+                break;
+            }
+            if (input.length() > index + tableName.length() && input[index + tableName.length()] == '.') {
+                tables.append(tableName);
+                break;
+            }
+            from = index + 1;
+        }
+    }
+
+    if (tables.size() != 2) {
+        qWarning("连接表数量不正确：%s", qUtf8Printable(tables.join(",")));
+        return;
+    }
+
+    QString sql;
+
+    if (selected == innerJoin) {
+        sql = QString("%1 INNER JOIN %2 ON %3").arg(tables[0], tables[1], input);
+    } else if (selected == leftJoin) {
+        sql = QString("%1 LEFT JOIN %2 ON %3").arg(tables[0], tables[1], input);
+    } else if (selected == rightJoin) {
+        sql = QString("%1 RIGHT JOIN %2 ON %3").arg(tables[0], tables[1], input);
+    } else {
+        return;
+    }
+
+    auto *item = new QTreeWidgetItem(QStringList("联合查询" + QString::number(join->childCount() + 1)));
+    join->addChild(item);
+    tree->expandAll();
+
+    joinedTables[item->text(0)] = sql;
+    qInfo("添加联合查询：%s", qUtf8Printable(item->text(0)));
+    qInfo("联合查询的 SQL 片段：%s", qUtf8Printable(sql));
 }
