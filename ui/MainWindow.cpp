@@ -4,6 +4,7 @@
 #include <QInputDialog>
 #include <QHeaderView>
 #include <QSqlQuery>
+#include <QSqlRecord>
 #include <QSqlError>
 #include <QString>
 #include <QDebug>
@@ -60,7 +61,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             if (item->parent()->text(0) == "单表查询") {
                 sql = "SELECT * FROM " + current;
             } else {
-                sql = "SELECT * FROM " + joinedTables[current];
+                sql = joinedTables[current].first;
             }
             model->setQuery(sql, db);
 
@@ -75,7 +76,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     connect(queryButton, &QPushButton::clicked, this, [=]() {
         qInfo("点击按钮：条件查询");
-        const QString sql = "SELECT * FROM " + (joinedTables.contains(current) ? joinedTables[current] : current) + (conditions[current].isEmpty() ? "" : " WHERE " + conditions[current]);
+        const QString sql = (joinedTables.contains(current) ? joinedTables[current].first : "SELECT * FROM " + current) + (conditions[current].isEmpty() ? "" : " WHERE " + conditions[current]);
         model->setQuery(sql, db);
 
         if (model->lastError().isValid()) {
@@ -132,6 +133,10 @@ void MainWindow::setDatabase(const QSqlDatabase& database, const QString& schema
 void MainWindow::showFilterMenu(const int column) {
     QString fieldName = model->headerData(column, Qt::Horizontal).toString();
     const QVariant::Type type = model->data(model->index(0, column)).type();
+
+    if (joinedTables.contains(current)) {
+        fieldName = joinedTables[current].second[fieldName];
+    }
 
     QMenu menu;
 
@@ -210,7 +215,7 @@ void MainWindow::showTreeContextMenu(const QPoint &pos) {
     for (int i = 0; i < single->childCount(); ++i) {
         QString tableName = single->child(i)->text(0);
         int from = 0;
-        while (true) {
+        while (input.length() > from + tableName.length()) {
             const int index = input.indexOf(tableName, from);
             if (index == -1) {
                 break;
@@ -228,23 +233,59 @@ void MainWindow::showTreeContextMenu(const QPoint &pos) {
         return;
     }
 
-    QString sql;
+    auto *item = new QTreeWidgetItem(QStringList("联合查询" + QString::number(join->childCount() + 1)));
+
+    QString sql = "SELECT ";
+
+    QMap<QString, QList<QString>> columns;
+
+    for (auto & tableName : tables) {
+        QSqlRecord rec = db.record(tableName);
+        for (int j = 0; j < rec.count(); ++j) {
+            columns[tableName].append(rec.fieldName(j));
+        }
+    }
+
+    for (auto & column : columns[tables[0]]) {
+        if (!sql.endsWith("SELECT ")) {
+            sql += ", ";
+        }
+        if (columns[tables[1]].contains(column)) {
+            joinedTables[item->text(0)].second[QString("%1_%2").arg(tables[0], column)] = QString("%1.%2").arg(tables[0], column);
+            sql += QString("%1.%2 AS %1_%2").arg(tables[0], column);
+        } else {
+            joinedTables[item->text(0)].second[column] = column;
+            sql += column;
+        }
+    }
+
+    for (auto & column : columns[tables[1]]) {
+        if (!sql.endsWith("SELECT ")) {
+            sql += ", ";
+        }
+        if (columns[tables[0]].contains(column)) {
+            joinedTables[item->text(0)].second[QString("%1_%2").arg(tables[1], column)] = QString("%1.%2").arg(tables[1], column);
+            sql += QString("%1.%2 AS %1_%2").arg(tables[1], column);
+        } else {
+            joinedTables[item->text(0)].second[column] = column;
+            sql += column;
+        }
+    }
+
+    sql += " FROM ";
 
     if (selected == innerJoin) {
-        sql = QString("%1 INNER JOIN %2 ON %3").arg(tables[0], tables[1], input);
+        sql += QString("%1 INNER JOIN %2 ON %3").arg(tables[0], tables[1], input);
     } else if (selected == leftJoin) {
-        sql = QString("%1 LEFT JOIN %2 ON %3").arg(tables[0], tables[1], input);
+        sql += QString("%1 LEFT JOIN %2 ON %3").arg(tables[0], tables[1], input);
     } else if (selected == rightJoin) {
-        sql = QString("%1 RIGHT JOIN %2 ON %3").arg(tables[0], tables[1], input);
+        sql += QString("%1 RIGHT JOIN %2 ON %3").arg(tables[0], tables[1], input);
     } else {
         return;
     }
 
-    auto *item = new QTreeWidgetItem(QStringList("联合查询" + QString::number(join->childCount() + 1)));
+    joinedTables[item->text(0)].first = sql;
+
     join->addChild(item);
     tree->expandAll();
-
-    joinedTables[item->text(0)] = sql;
-    qInfo("添加联合查询：%s", qUtf8Printable(item->text(0)));
-    qInfo("联合查询的 SQL 片段：%s", qUtf8Printable(sql));
 }

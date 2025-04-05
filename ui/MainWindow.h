@@ -25,8 +25,10 @@ private:
 
     QSqlDatabase db;
     QString current;
+    // 表名 -> 条件 SQL 片段
     QMap<QString, QString> conditions;
-    QMap<QString, QString> joinedTables;
+    // 联合查询名 -> {SQL 语句, {列名 -> 列的别名}}
+    QMap<QString, QPair<QString, QMap<QString, QString>>> joinedTables;
 
     void showFilterMenu(int column);
     void showTreeContextMenu(const QPoint &pos);
