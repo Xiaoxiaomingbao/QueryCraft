@@ -79,4 +79,4 @@ dkms.conf
 out
 gen
 /cmake-build-debug/
-/db/
+/cmake-build-release/
